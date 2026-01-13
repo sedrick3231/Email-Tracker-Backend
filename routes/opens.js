@@ -4,46 +4,24 @@ const db = require("../db");
 
 const router = express.Router();
 
-/**
- * Create a tracked email
- */
-router.post("/email", (req, res) => {
-  const { sender, subject } = req.body;
-
-  const emailId = uuidv4();
-
-  db.run(
-    "INSERT INTO emails (id, sender, subject) VALUES (?, ?, ?)",
-    [emailId, sender, subject],
-    () => {
-      res.json({
-        emailId,
-        trackingPixel: `/track/open/${emailId}.png`
-      });
-    }
-  );
-});
-
-/**
- * Get opens for sender
- */
 router.get("/opens", (req, res) => {
-  const { sender } = req.query;
-    console.log("Sender:", sender);
-    console.log("Email Opens Request Received");
+  const { user_email } = req.query;
+  if (!user_email) return res.status(400).json({ error: "user_email is required" });
+
   db.all(
     `
-    SELECT emails.id, emails.subject, COUNT(opens.id) as opens
+    SELECT emails.id, emails.subject, emails.recipient_email, emails.created_at, COUNT(opens.id) as opens
     FROM emails
     LEFT JOIN opens ON emails.id = opens.email_id
-    WHERE emails.sender = ?
+    WHERE emails.user_email = ?
     GROUP BY emails.id
+    ORDER BY emails.created_at DESC
     `,
-    [sender],
+    [user_email],
     (err, rows) => {
+      if (err) return res.status(500).json({ error: "database error" });
       res.json(rows);
     }
   );
 });
-
 module.exports = router;
