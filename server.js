@@ -4,7 +4,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const trackRoutes = require("./routes/track");
 const openRoutes = require("./routes/opens");
-
+const userRoutes = require("./routes/users");
 const app = express();
 const server = http.createServer(app);
 
@@ -16,18 +16,14 @@ const io = new Server(server, { cors: { origin: "*" } });
 const connectedUsers = {}; // { user_email: socketId }
 
 io.on("connection", (socket) => {
-  console.log("A user connected");
-
   socket.on("register", (user_email) => {
     connectedUsers[user_email] = socket.id;
-    console.log("Registered user:", user_email);
   });
 
   socket.on("disconnect", () => {
     for (const [email, id] of Object.entries(connectedUsers)) {
       if (id === socket.id) delete connectedUsers[email];
     }
-    console.log("A user disconnected");
   });
 });
 
@@ -39,8 +35,7 @@ app.set("notifyEmailOpen", (user_email, email) => {
 
 app.use("/track", trackRoutes);
 app.use("/open", openRoutes);
-
-app.get("/health", (req, res) => res.json({ status: "ok", timestamp: new Date() }));
+app.use("/users", userRoutes);
 
 const PORT = 3000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
