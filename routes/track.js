@@ -6,7 +6,6 @@ const router = express.Router();
 router.get("/open/:token.png", (req, res) => {
   const { token } = req.params;
 
-  console.log(`[DEBUG] /open request for token=${token}`);
 
   // 1️⃣ Fetch email by token (source of truth)
   db.get(
@@ -29,10 +28,7 @@ router.get("/open/:token.png", (req, res) => {
       const tooFast =
         Date.now() - new Date(email.sent_at).getTime() < 5000;
 
-      console.log(`[DEBUG] sameSender=${sameSender}, tooFast=${tooFast}`);
-
       if (sameSender || tooFast) {
-        console.log("[DEBUG] Open ignored (self-open or too fast)");
         return sendPixel(res);
       }
 
@@ -47,16 +43,13 @@ router.get("/open/:token.png", (req, res) => {
           }
 
           if (existing) {
-            console.log(
-              `[DEBUG] Email id=${email.id} already opened by recipient=${email.recipient_email}`
-            );
             return sendPixel(res);
           }
 
           // 3️⃣ Record the open
           db.run(
             `INSERT INTO recipients (email_id, recipient_email, token)
-             VALUES (?, ?, ?, ?, ?)`,
+             VALUES (?, ?, ?)`,
             [
               email.id,
               email.recipient_email,
@@ -64,11 +57,6 @@ router.get("/open/:token.png", (req, res) => {
             ],
             (err) => {
               if (err) console.error("[ERROR] Open insert failed:", err);
-              else
-                console.log(
-                  `[DEBUG] Open saved for email_id=${email.id}, recipient=${email.recipient_email}`
-                );
-
               // 4️⃣ Notify sender
               const notify = req.app.get("notifyEmailOpen");
               if (notify) {
@@ -99,7 +87,6 @@ function sendPixel(res) {
   );
   res.set("Content-Type", "image/png");
   res.set("Cache-Control", "no-store, no-cache, must-revalidate");
-  console.log("[DEBUG] Pixel sent to client");
   res.send(pixel);
 }
 
