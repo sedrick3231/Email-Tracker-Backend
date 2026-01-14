@@ -15,13 +15,11 @@ db.serialize(() => {
   `);
 
     db.run(`
-    CREATE TABLE IF NOT EXISTS opens (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT NOT NULL,
-      ip TEXT,
-      user_agent TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY(email_id) REFERENCES emails(id)
+    CREATE TABLE IF NOT EXISTS recipients (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email_id INTEGER NOT NULL,
+    recipient_email TEXT NOT NULL,
+    token TEXT NOT NULL UNIQUE
     )
   `);
 });

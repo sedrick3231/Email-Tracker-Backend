@@ -3,71 +3,60 @@ const db = require("../db");
 
 const router = express.Router();
 
-router.get("/open/:emailId.png", (req, res) => {
-  const { emailId } = req.params;
-  console.log(`[DEBUG] /open request received for emailId=${emailId}`);
+router.get("/open/:token.png", (req, res) => {
+  const { token } = req.params;
+  console.log(`[DEBUG] /open request received for token=${token}`);
   console.log(`[DEBUG] Request IP: ${req.ip}, User-Agent: ${req.headers["user-agent"]}`);
 
-  // Get email info
-  db.get("SELECT * FROM emails WHERE user_email = ?", [emailId], (err, email) => {
-    if (err) {
-      console.error(`[ERROR] DB error fetching email ${emailId}:`, err);
-      return sendPixel(res);
-    }
+  // Get recipient info
+  db.get(
+    "SELECT r.*, e.user_email, e.subject FROM recipients r JOIN emails e ON r.email_id = e.id WHERE r.token = ?",
+    [token],
+    (err, row) => {
+      if (err) {
+        console.error(`[ERROR] DB error fetching token ${token}:`, err);
+        return sendPixel(res);
+      }
+      if (!row) {
+        console.warn(`[WARN] No recipient found with token=${token}`);
+        return sendPixel(res);
+      }
 
-    if (!email) {
-      console.warn(`[WARN] No email found with id=${emailId}`);
-      return sendPixel(res);
-    }
+      console.log(`[DEBUG] Recipient found:`, row);
 
-    console.log(`[DEBUG] Email found:`, {
-      id: email.id,
-      user_email: email.user_email,
-      recipient_email: email.recipient_email,
-      subject: email.subject,
-      sent_at: email.sent_at,
-    });
+      // Ignore self-open if sender_email === loggedInUser (optional)
+      const sameSender = row.sender_ip === req.ip; // or check IP/UA
+      const tooFast = Date.now() - new Date(row.sent_at).getTime() < 12000;
 
-    // Ignore self-open (sender IP + UA)
-    const sameSender = email.sender_ip === req.ip && email.sender_ua === req.headers["user-agent"];
-    const tooFast = Date.now() - new Date(email.sent_at).getTime() < 10000;
+      if (!sameSender && !tooFast) {
+        // Save open
+        db.run(
+          "INSERT INTO opens (email_id, recipient_email, ip, user_agent) VALUES (?, ?, ?, ?)",
+          [row.email_id, row.recipient_email, req.ip, req.headers["user-agent"]],
+          (err) => {
+            if (err) console.error(`[ERROR] Open insert error:`, err);
+            else console.log(`[DEBUG] Open saved for recipient ${row.recipient_email}`);
 
-    console.log(`[DEBUG] sameSender=${sameSender}, tooFast=${tooFast}`);
-
-    if (!sameSender && !tooFast) {
-      // Save open
-      db.run(
-        "INSERT INTO opens (email_id, ip, user_agent) VALUES (?, ?, ?)",
-        [emailId, req.ip, req.headers["user-agent"]],
-        (err) => {
-          if (err) {
-            console.error(`[ERROR] Open insert error for emailId=${emailId}:`, err);
-          } else {
-            console.log(`[DEBUG] Open saved for emailId=${emailId}`);
+            const notify = req.app.get("notifyEmailOpen");
+            if (notify) {
+              notify(row.user_email, {
+                emailId: row.email_id,
+                subject: row.subject,
+                recipient_email: row.recipient_email,
+                openedAt: new Date().toISOString(),
+              });
+            }
           }
+        );
+      } else {
+        console.log(`[DEBUG] Open ignored (sameSender or tooFast)`);
+      }
 
-          // Notify sender via WebSocket
-          const notify = req.app.get("notifyEmailOpen");
-          if (notify) {
-            console.log(`[DEBUG] Notifying sender of email open for ${email.user_email}`);
-            notify(email.user_email, {
-              emailId,
-              subject: email.subject,
-              recipient_email: email.recipient_email,
-              openedAt: new Date().toISOString(),
-            });
-          } else {
-            console.warn("[WARN] No WebSocket notify function found on app");
-          }
-        }
-      );
-    } else {
-      console.log(`[DEBUG] Open ignored (sameSender or tooFast)`);
+      sendPixel(res);
     }
-
-    sendPixel(res);
-  });
+  );
 });
+
 
 function sendPixel(res) {
   const pixel = Buffer.from(
