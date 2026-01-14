@@ -38,14 +38,14 @@ router.get("/open/:token.png", (req, res) => {
 
       // 3️⃣ Ignore instant opens (sender preview, Gmail processing, etc.)
       const tooFast =
-        Date.now() - new Date(email.sent_at).getTime() < 12000;
+        Date.now() - new Date(email.sent_at).getTime() < 8000;
 
       console.log(`[DEBUG] sameSender=${sameSender}, tooFast=${tooFast}`);
 
       if (!sameSender && !tooFast) {
         // 4️⃣ Save open event
         db.run(
-          `INSERT INTO opens (email_id, recipient_email, ip, user_agent)
+          `INSERT INTO recipients (email_id, recipient_email, ip, user_agent)
            VALUES (?, ?, ?, ?)`,
           [
             email.id,
