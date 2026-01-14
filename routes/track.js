@@ -9,7 +9,7 @@ router.get("/open/:emailId.png", (req, res) => {
   console.log(`[DEBUG] Request IP: ${req.ip}, User-Agent: ${req.headers["user-agent"]}`);
 
   // Get email info
-  db.get("SELECT * FROM emails WHERE id = ?", [emailId], (err, email) => {
+  db.get("SELECT * FROM emails WHERE user_email = ?", [emailId], (err, email) => {
     if (err) {
       console.error(`[ERROR] DB error fetching email ${emailId}:`, err);
       return sendPixel(res);
@@ -30,14 +30,11 @@ router.get("/open/:emailId.png", (req, res) => {
 
     // Ignore self-open (sender IP + UA)
     const sameSender = email.sender_ip === req.ip && email.sender_ua === req.headers["user-agent"];
-    const tooFast = Date.now() - new Date(email.sent_at).getTime() < 3000;
 
-    console.log(`[DEBUG] sameSender=${sameSender}, tooFast=${tooFast}`);
-
-    if (!sameSender && !tooFast) {
+    if (!sameSender) {
       // Save open
       db.run(
-        "INSERT INTO opens (email_id, ip, user_agent) VALUES (?, ?, ?)",
+        "INSERT INTO opens (email, ip, user_agent) VALUES (?, ?, ?)",
         [emailId, req.ip, req.headers["user-agent"]],
         (err) => {
           if (err) {

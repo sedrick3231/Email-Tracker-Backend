@@ -17,7 +17,7 @@ db.serialize(() => {
     db.run(`
     CREATE TABLE IF NOT EXISTS opens (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email_id INTEGER NOT NULL,
+      email TEXT NOT NULL,
       ip TEXT,
       user_agent TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
