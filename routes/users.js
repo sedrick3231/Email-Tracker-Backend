@@ -7,7 +7,7 @@ router.post("/save-email", (req, res) => {
     try {
         const { user_email, recipient_email, subject, token } = req.body;
         if (!user_email) return res.status(400).json({ error: "User email required" });
-        const safeSubject = subject ? subject.trim() : "(No subject)";
+        const safeSubject = subject.trim();
 
         const sql = `
             INSERT INTO emails (user_email, recipient_email, subject, sent_at, sender_ip, sender_ua, Token)

@@ -59,10 +59,11 @@ router.get("/open/:token.png", (req, res) => {
               if (err) console.error("[ERROR] Open insert failed:", err);
               // 4️⃣ Notify sender
               const notify = req.app.get("notifyEmailOpen");
+              const ClearSubject = email.subject.replace(/[\n]+/g, "").trim();
               if (notify) {
                 notify(email.user_email, {
                   emailId: email.id,
-                  subject: email.subject,
+                  subject: ClearSubject,
                   recipient_email: email.recipient_email,
                   openedAt: new Date().toISOString()
                 });
