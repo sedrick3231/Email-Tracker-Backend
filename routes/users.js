@@ -21,6 +21,7 @@ router.post("/save-email", (req, res) => {
 
             const emailId = this.lastID; // <-- Correct property
             const baseUrl = `${req.protocol}://${req.get('host')}`;
+            console.log("Email Saved with ID:", emailId);
             res.json({ emailId, pixelUrl: `${baseUrl}/open/pixel/${emailId}.png` });
         });
     } catch (err) {
