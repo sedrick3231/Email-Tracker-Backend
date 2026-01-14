@@ -10,7 +10,8 @@ db.serialize(() => {
       subject TEXT,
       sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       sender_ip TEXT,
-      sender_ua TEXT
+      sender_ua TEXT,
+      Token TEXT NOT NULL UNIQUE
     )
   `);
 
