@@ -30,11 +30,14 @@ router.get("/open/:emailId.png", (req, res) => {
 
     // Ignore self-open (sender IP + UA)
     const sameSender = email.sender_ip === req.ip && email.sender_ua === req.headers["user-agent"];
+    const tooFast = Date.now() - new Date(email.sent_at).getTime() < 10000;
 
-    if (!sameSender) {
+    console.log(`[DEBUG] sameSender=${sameSender}, tooFast=${tooFast}`);
+
+    if (!sameSender && !tooFast) {
       // Save open
       db.run(
-        "INSERT INTO opens (email, ip, user_agent) VALUES (?, ?, ?)",
+        "INSERT INTO opens (email_id, ip, user_agent) VALUES (?, ?, ?)",
         [emailId, req.ip, req.headers["user-agent"]],
         (err) => {
           if (err) {
