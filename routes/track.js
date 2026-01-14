@@ -7,9 +7,8 @@ router.get("/open/:token.png", (req, res) => {
   const { token } = req.params;
 
   console.log(`[DEBUG] /open request for token=${token}`);
-  console.log(`[DEBUG] IP=${req.ip}, UA=${req.headers["user-agent"]}`);
 
-  // 1️⃣ Fetch email by token (SOURCE OF TRUTH)
+  // 1️⃣ Fetch email by token (source of truth)
   db.get(
     "SELECT * FROM emails WHERE Token = ?",
     [token],
@@ -24,63 +23,73 @@ router.get("/open/:token.png", (req, res) => {
         return sendPixel(res);
       }
 
-      console.log("[DEBUG] Email found:", {
-        id: email.id,
-        user_email: email.user_email,
-        recipient_email: email.recipient_email,
-        sent_at: email.sent_at
-      });
-
-      // 2️⃣ Ignore sender self-open
       const sameSender =
         email.sender_ip === req.ip &&
         email.sender_ua === req.headers["user-agent"];
-
-      // 3️⃣ Ignore instant opens (sender preview, Gmail processing, etc.)
       const tooFast =
-        Date.now() - new Date(email.sent_at).getTime() < 8000;
+        Date.now() - new Date(email.sent_at).getTime() < 5000;
 
       console.log(`[DEBUG] sameSender=${sameSender}, tooFast=${tooFast}`);
 
-      if (!sameSender && !tooFast) {
-        // 4️⃣ Save open event
-        db.run(
-          `INSERT INTO recipients (email_id, recipient_email, ip, user_agent)
-           VALUES (?, ?, ?, ?)`,
-          [
-            email.id,
-            email.recipient_email,
-            req.ip,
-            req.headers["user-agent"]
-          ],
-          (err) => {
-            if (err) {
-              console.error("[ERROR] Open insert failed:", err);
-            } else {
-              console.log(`[DEBUG] Open saved for email_id=${email.id}`);
-            }
-
-            // 5️⃣ Notify sender
-            const notify = req.app.get("notifyEmailOpen");
-            if (notify) {
-              notify(email.user_email, {
-                emailId: email.id,
-                subject: email.subject,
-                recipient_email: email.recipient_email,
-                openedAt: new Date().toISOString()
-              });
-            }
-          }
-        );
-      } else {
+      if (sameSender || tooFast) {
         console.log("[DEBUG] Open ignored (self-open or too fast)");
+        return sendPixel(res);
       }
 
-      // 6️⃣ Always return pixel
-      sendPixel(res);
+      // 2️⃣ Check if this recipient already opened this email
+      db.get(
+        "SELECT * FROM recipients WHERE email_id = ? AND recipient_email = ?",
+        [email.id, email.recipient_email],
+        (err, existing) => {
+          if (err) {
+            console.error("[ERROR] DB error checking existing open:", err);
+            return sendPixel(res);
+          }
+
+          if (existing) {
+            console.log(
+              `[DEBUG] Email id=${email.id} already opened by recipient=${email.recipient_email}`
+            );
+            return sendPixel(res);
+          }
+
+          // 3️⃣ Record the open
+          db.run(
+            `INSERT INTO recipients (email_id, recipient_email, token)
+             VALUES (?, ?, ?, ?, ?)`,
+            [
+              email.id,
+              email.recipient_email,
+              token,
+            ],
+            (err) => {
+              if (err) console.error("[ERROR] Open insert failed:", err);
+              else
+                console.log(
+                  `[DEBUG] Open saved for email_id=${email.id}, recipient=${email.recipient_email}`
+                );
+
+              // 4️⃣ Notify sender
+              const notify = req.app.get("notifyEmailOpen");
+              if (notify) {
+                notify(email.user_email, {
+                  emailId: email.id,
+                  subject: email.subject,
+                  recipient_email: email.recipient_email,
+                  openedAt: new Date().toISOString()
+                });
+              }
+            }
+          );
+
+          // 5️⃣ Return pixel
+          sendPixel(res);
+        }
+      );
     }
   );
 });
+
 
 
 function sendPixel(res) {
