@@ -6,14 +6,12 @@ const router = express.Router();
 router.get("/open/:token.png", (req, res) => {
   const { token } = req.params;
 
-
   // 1️⃣ Fetch email by token (source of truth)
   db.get(
     "SELECT * FROM emails WHERE Token = ?",
     [token],
     (err, email) => {
       if (err) {
-        console.error("[ERROR] DB error fetching email by token:", err);
         return sendPixel(res);
       }
 
@@ -26,7 +24,7 @@ router.get("/open/:token.png", (req, res) => {
         email.sender_ip === req.ip &&
         email.sender_ua === req.headers["user-agent"];
       const tooFast =
-        Date.now() - new Date(email.sent_at).getTime() < 5000;
+        Date.now() - new Date(email.sent_at).getTime() < 13000;
 
       if (sameSender || tooFast) {
         return sendPixel(res);
