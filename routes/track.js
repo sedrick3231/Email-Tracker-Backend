@@ -16,7 +16,6 @@ router.get("/open/:token.png", (req, res) => {
       }
 
       if (!email) {
-        console.warn(`[WARN] No email found for token=${token}`);
         return sendPixel(res);
       }
 
