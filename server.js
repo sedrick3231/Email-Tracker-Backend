@@ -10,7 +10,11 @@ const verifyUserRoutes = require("./routes/verification");
 const app = express();
 const server = http.createServer(app);
 
-app.use(cors());
+app.use(cors({
+  origin: ['http://localhost:3003', 'chrome-extension://hbbmdklfkbhhlpijhpbjiiacadhgbpfl'], // allow your frontend or extension
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization','x-admin-token']
+}));
 app.use(express.json());
 
 // Routes
