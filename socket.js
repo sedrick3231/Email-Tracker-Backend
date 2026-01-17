@@ -46,15 +46,6 @@ const updateHeartbeat = (deviceId, now) =>
     );
   });
 
-const deactivateSession = (sessionId) =>
-  new Promise((resolve) => {
-    db.run(
-      `UPDATE UserSessions SET active = 0 WHERE session_id = ?`,
-      [sessionId],
-      () => resolve()
-    );
-  });
-
 // ---------- SOCKET INIT ----------
 module.exports = {
   init: (server) => {
@@ -82,7 +73,6 @@ module.exports = {
 
           // 1️⃣ Check existing session
           const existing = await getActiveSession(email, deviceId);
-
           if (existing) {
             sessionId = existing.session_id;
             connectedSessions[sessionId] = {
@@ -92,7 +82,6 @@ module.exports = {
 
             return socket.emit("login_ack", { sessionId });
           }
-
           // 2️⃣ Check device limit
           const { allowed, message } = await canUserLogin(email);
           if (!allowed) {
@@ -111,7 +100,6 @@ module.exports = {
             deviceId,
             now
           });
-
           connectedSessions[sessionId] = {
             socketId: socket.id,
             user_email: email
@@ -139,14 +127,6 @@ module.exports = {
 
       // ---------- DISCONNECT ----------
       socket.on("disconnect", async () => {
-        try {
-          if (sessionId) {
-            await deactivateSession(sessionId);
-            delete connectedSessions[sessionId];
-          }
-        } catch (err) {
-          console.error("❌ Disconnect cleanup error:", err.message);
-        }
       });
     });
 

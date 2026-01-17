@@ -27,7 +27,6 @@ async function canUserLogin(email) {
             }
         );
     });
-
     // 3️⃣ Deny login if active sessions exceed allowed devices
     if (activeSessions >= allowedDevices) {
         return { allowed: false, message: "Maximum device limit reached!" };
