@@ -65,138 +65,115 @@ module.exports = {
       pingInterval: 25000,
       pingTimeout: 60000,
     });
-    io.engine.on("connection_error", (err) => {
-      console.error("🔴 Socket.IO engine connection error:", err.req?.headers, err.message, err);
-    });
 
     io.on("connection", (socket) => {
-      console.log("🟢 Socket connected:", socket.id, "from", socket.handshake.address);
+      let sessionId = null;
+      let userEmail = null;
+      let deviceId = null;
 
-      socket.onAny((event, ...args) => {
-        console.log(`🔵 Event received: ${event}`, args);
+      // ---------- REGISTER ----------
+      socket.on("register", async ({ email, deviceId: deviceIdParam }) => {
+        try {
+          if (!email) throw new Error("No email provided");
+          if (!deviceIdParam) throw new Error("No deviceId provided");
+
+          userEmail = email;
+          deviceId = deviceIdParam;
+
+          // 1️⃣ Check existing session
+          const existing = await getActiveSession(email, deviceId);
+
+          if (existing) {
+            sessionId = existing.session_id;
+            connectedSessions[sessionId] = {
+              socketId: socket.id,
+              user_email: email
+            };
+
+            return socket.emit("login_ack", { sessionId });
+          }
+
+          // 2️⃣ Check device limit
+          const { allowed, message } = await canUserLogin(email);
+          if (!allowed) {
+            return socket.emit("login_denied", {
+              message: message || "Maximum device limit reached"
+            });
+          }
+
+          // 3️⃣ Create new session
+          sessionId = uuidv4();
+          const now = new Date().toISOString();
+
+          await insertSession({
+            sessionId,
+            email,
+            deviceId,
+            now
+          });
+
+          connectedSessions[sessionId] = {
+            socketId: socket.id,
+            user_email: email
+          };
+
+          socket.emit("login_ack", { sessionId });
+
+        } catch (err) {
+          console.error("❌ Register error:", err.message);
+          socket.emit("error", { message: err.message });
+        }
       });
 
-      socket.on("disconnect", (reason) => {
-        console.warn("⚠️ Socket disconnected:", socket.id, "Reason:", reason);
+      // // ---------- HEARTBEAT ----------
+      socket.on("heartbeat", async () => {
+        try {
+          if (!deviceId) return;
+
+          const now = new Date().toISOString();
+          await updateHeartbeat(deviceId, now);
+        } catch (err) {
+          console.error("❌ Heartbeat error:", err.message);
+        }
       });
 
-      socket.on("error", (err) => {
-        console.error("⚠️ Socket error:", err);
+      // ---------- DISCONNECT ----------
+      socket.on("disconnect", async () => {
+        try {
+          if (sessionId) {
+            await deactivateSession(sessionId);
+            delete connectedSessions[sessionId];
+          }
+        } catch (err) {
+          console.error("❌ Disconnect cleanup error:", err.message);
+        }
       });
     });
 
-    console.log("Socket.IO server initialized");
-    // io.on("connection", (socket) => {
-    //   console.log("🔌 Socket connected:", socket.id);
-
-    //   // let sessionId = null;
-    //   // let userEmail = null;
-    //   // let deviceId = null;
-
-    //   // ---------- REGISTER ----------
-    //   // socket.on("register", async ({ email, deviceId: deviceIdParam }) => {
-    //   //   console.log("Received register request:", email, deviceIdParam);
-    //   //   try {
-    //   //     if (!email) throw new Error("No email provided");
-    //   //     if (!deviceIdParam) throw new Error("No deviceId provided");
-
-    //   //     userEmail = email;
-    //   //     deviceId = deviceIdParam;
-
-    //   //     // 1️⃣ Check existing session
-    //   //     const existing = await getActiveSession(email, deviceId);
-
-    //   //     if (existing) {
-    //   //       sessionId = existing.session_id;
-    //   //       connectedSessions[sessionId] = {
-    //   //         socketId: socket.id,
-    //   //         user_email: email
-    //   //       };
-
-    //   //       return socket.emit("login_ack", { sessionId });
-    //   //     }
-
-    //   //     // 2️⃣ Check device limit
-    //   //     const { allowed, message } = await canUserLogin(email);
-    //   //     if (!allowed) {
-    //   //       return socket.emit("login_denied", {
-    //   //         message: message || "Maximum device limit reached"
-    //   //       });
-    //   //     }
-
-    //   //     // 3️⃣ Create new session
-    //   //     sessionId = uuidv4();
-    //   //     const now = new Date().toISOString();
-
-    //   //     await insertSession({
-    //   //       sessionId,
-    //   //       email,
-    //   //       deviceId,
-    //   //       now
-    //   //     });
-
-    //   //     connectedSessions[sessionId] = {
-    //   //       socketId: socket.id,
-    //   //       user_email: email
-    //   //     };
-
-    //   //     socket.emit("login_ack", { sessionId });
-
-    //   //   } catch (err) {
-    //   //     console.error("❌ Register error:", err.message);
-    //   //     socket.emit("error", { message: err.message });
-    //   //   }
-    //   // });
-
-    //   // // ---------- HEARTBEAT ----------
-    //   // socket.on("heartbeat", async () => {
-    //   //   try {
-    //   //     if (!deviceId) return;
-
-    //   //     const now = new Date().toISOString();
-    //   //     await updateHeartbeat(deviceId, now);
-    //   //   } catch (err) {
-    //   //     console.error("❌ Heartbeat error:", err.message);
-    //   //   }
-    //   // });
-
-    //   // ---------- DISCONNECT ----------
-    //   socket.on("disconnect", async () => {
-    //     try {
-    //       if (sessionId) {
-    //         await deactivateSession(sessionId);
-    //         delete connectedSessions[sessionId];
-    //       }
-    //     } catch (err) {
-    //       console.error("❌ Disconnect cleanup error:", err.message);
-    //     }
-    //   });
-    // });
-
     // ---------- STALE SESSION CLEANUP ----------
-    // setInterval(() => {
-    //   const threshold = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+    setInterval(() => {
+      const threshold = new Date(Date.now() - 20 * 60 * 1000).toISOString();
 
-    //   db.all(
-    //     `SELECT session_id FROM UserSessions 
-    //    WHERE last_heartbeat < ? AND active = 1`,
-    //     [threshold],
-    //     (err, rows) => {
-    //       if (err) return console.error("Cleanup error:", err.message);
+      db.all(
+        `SELECT session_id FROM UserSessions 
+       WHERE last_heartbeat < ? AND active = 1`,
+        [threshold],
+        (err, rows) => {
+          if (err) return console.error("Cleanup error:", err.message);
 
-    //       rows.forEach(({ session_id }) => {
-    //         db.run(`DELETE FROM UserSessions WHERE session_id = ?`, [session_id]);
+          rows.forEach(({ session_id }) => {
+            db.run(`DELETE FROM UserSessions WHERE session_id = ?`, [session_id]);
 
-    //         const session = connectedSessions[session_id];
-    //         if (session && session.socket) {
-    //           session.socket.disconnect(true);
-    //           delete connectedSessions[session_id];
-    //         }
-    //       });
+            const session = connectedSessions[session_id];
+            if (session && session.socket) {
+              session.socket.disconnect(true);
+              delete connectedSessions[session_id];
+            }
+          });
 
-    //     }
-    //   );
-    // }, 5 * 60 * 1000);
+        }
+      );
+    }, 5 * 60 * 1000);
 
   },
 
