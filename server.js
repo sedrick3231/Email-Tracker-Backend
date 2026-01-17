@@ -11,10 +11,21 @@ const app = express();
 const server = http.createServer(app);
 
 app.use(cors({
-  origin: ['http://localhost:3003', 'chrome-extension://hbbmdklfkbhhlpijhpbjiiacadhgbpfl'], // allow your frontend or extension
+  origin: (origin, callback) => {
+    // Allow localhost and your extension
+    if (!origin || 
+        origin === 'http://localhost:3003' || 
+        origin.startsWith('chrome-extension://hbbmdklfkbhhlpijhpbjiiacadhgbpfl')) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS not allowed'));
+    }
+  },
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-  allowedHeaders: ['Content-Type','Authorization','x-admin-token']
+  allowedHeaders: ['Content-Type','Authorization','x-admin-token'],
+  credentials: true // if you ever use cookies or auth
 }));
+
 app.use(express.json());
 
 // Routes
