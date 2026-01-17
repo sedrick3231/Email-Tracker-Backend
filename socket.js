@@ -63,7 +63,7 @@ init: (server) => {
     cors: { origin: "*" },
     transports: ["websocket"] // force websocket (Railway-safe)
   });
-
+  console.log("Socket.IO server initialized");
   io.on("connection", (socket) => {
     console.log("🔌 Socket connected:", socket.id);
 
@@ -73,6 +73,7 @@ init: (server) => {
 
     // ---------- REGISTER ----------
     socket.on("register", async ({ email, deviceId: deviceIdParam }) => {
+      console.log("Received register request:", email, deviceIdParam);
       try {
         if (!email) throw new Error("No email provided");
         if (!deviceIdParam) throw new Error("No deviceId provided");
