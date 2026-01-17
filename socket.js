@@ -61,7 +61,9 @@ module.exports = {
 
     io = new Server(server, {
       cors: { origin: "*" },
-      transports: ["websocket"] // force websocket (Railway-safe)
+      transports: ["websocket"],
+      pingInterval: 25000,
+      pingTimeout: 60000,
     });
     console.log("Socket.IO server initialized");
     io.on("connection", (socket) => {
@@ -195,3 +197,41 @@ module.exports = {
     });
   }
 }
+
+module.exports = {
+  init: (server) => {
+    const { Server } = require("socket.io");
+    io = new Server(server, {
+      cors: { origin: "*" },
+      transports: ["websocket"], // force websocket
+      pingInterval: 25000,
+      pingTimeout: 60000,
+    });
+
+    console.log("Socket.IO server initialized");
+
+    io.on("connection", (socket) => {
+      console.log("🔌 Socket connected:", socket.id);
+
+      // Immediately acknowledge connection
+      socket.emit("connected", { message: "Hello from server" });
+
+      // Example: listen for client events asynchronously
+      socket.on("heartbeat", async (data) => {
+        console.log("Heartbeat received:", data);
+      });
+
+      socket.on("disconnect", (reason) => {
+        console.log("Socket disconnected:", socket.id, reason);
+      });
+    });
+  },
+
+  notifyEmailOpened: (user_email, payload) => {
+    if (!io) return;
+
+    Object.values(io.sockets.sockets).forEach((socket) => {
+      socket.emit("email-opened", payload);
+    });
+  },
+};
