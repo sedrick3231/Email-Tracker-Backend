@@ -34,6 +34,19 @@ db.serialize(() => {
     active INTEGER NOT NULL DEFAULT 1
     )
   `);
+
+  db.run(`
+  CREATE TABLE IF NOT EXISTS CompanySessions(
+    session_id TEXT PRIMARY KEY,
+    companyid TEXT NOT NULL,
+    device_id TEXT NOT NULL,
+    user_email TEXT NOT NULL,
+    login_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_heartbeat TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    active INTEGER NOT NULL DEFAULT 1
+  )
+`);
+
 });
 
 module.exports = db;

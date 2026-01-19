@@ -5,7 +5,6 @@ const adminAuth = require("../middleware/Auth");
 
 router.use(adminAuth); // Apply admin authentication middleware to all routes
 
-// GET /active-sessions/:email
 router.get("/:email", (req, res) => {
   const userEmail = req.params.email;
 
@@ -33,7 +32,6 @@ router.get("/:email", (req, res) => {
 });
 
 
-// GET /active-users
 router.get("/", (req, res) => {
   const query = `
     SELECT user_email, COUNT(*) AS active_sessions
@@ -55,6 +53,5 @@ router.get("/", (req, res) => {
     });
   });
 });
-
 
 module.exports = router;

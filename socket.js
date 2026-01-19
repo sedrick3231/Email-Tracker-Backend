@@ -1,6 +1,6 @@
 const { v4: uuidv4 } = require("uuid");
 const db = require("./db.js");
-const { canUserLogin } = require("./utils/AllowLogin.js");
+const { canUserLogin, canCompanyUserLogin } = require("./utils/AllowLogin.js");
 const { Server } = require("socket.io");
 
 let io = null;
@@ -63,26 +63,91 @@ module.exports = {
       let deviceId = null;
 
       // ---------- REGISTER ----------
-      socket.on("register", async ({ email, deviceId: deviceIdParam }) => {
+      socket.on("register", async ({ email, deviceId: deviceIdParam, companyId }) => {
         try {
-          if (!email) throw new Error("No email provided");
           if (!deviceIdParam) throw new Error("No deviceId provided");
 
-          userEmail = email;
+          const isEnterprise = !!companyId;
           deviceId = deviceIdParam;
+          userEmail = email || null;
 
-          // 1️⃣ Check existing session
-          const existing = await getActiveSession(email, deviceId);
-          if (existing) {
-            sessionId = existing.session_id;
-            connectedSessions[sessionId] = {
-              socketId: socket.id,
-              user_email: email
-            };
+          if (isEnterprise) {
+            try {
 
-            return socket.emit("login_ack", { sessionId });
+              const existingCompanySession = await new Promise((resolve, reject) => {
+                db.get(
+                  `SELECT * FROM CompanySessions WHERE companyid = ? AND device_id = ? AND active = 1`,
+                  [companyId, deviceId],
+                  (err, row) => {
+                    if (err) {
+                      console.log("DB error checking existing company session:", err);
+                      return reject(err);
+                    }
+                    resolve(row);
+                  }
+                );
+              });
+
+
+              if (existingCompanySession) {
+                return socket.emit("login_denied", {
+                  message: "This device is already logged in for this company"
+                });
+              }
+
+              // 2️⃣ Check if the company allows more users
+              const { allowed, message } = await canCompanyUserLogin(companyId);
+              if (!allowed) {
+                return socket.emit("login_denied", {
+                  message: message || "Maximum device limit reached"
+                });
+              }
+
+              // 3️⃣ Create new company session
+              sessionId = uuidv4();
+              await new Promise((resolve, reject) => {
+                db.run(
+                  `INSERT INTO CompanySessions (session_id, companyid, device_id, user_email) VALUES (?, ?, ?, ?)`,
+                  [sessionId, companyId, deviceId, userEmail],
+                  function (err) {
+                    if (err) return reject(err);
+                    resolve();
+                  }
+                );
+              });
+
+              // 4️⃣ Add to connectedSessions
+              connectedSessions[sessionId] = {
+                socketId: socket.id,
+                companyId,
+                deviceId,
+                user_email: userEmail
+              };
+
+              // 5️⃣ Emit login acknowledgment
+              return socket.emit("login_ack", { sessionId, companyId });
+
+            } catch (err) {
+              console.error("❌ Enterprise session error:", err.message);
+              return socket.emit("login_denied", { message: err.message });
+            }
           }
-          // 2️⃣ Check device limit
+
+
+          // -------------------------------
+          // Individual user flow
+          // -------------------------------
+          if (!email) throw new Error("No email provided");
+
+          // Check existing user session (replace with your UserSessions table logic)
+          const existingUserSession = await getActiveSession(email, deviceId);
+          if (existingUserSession) {
+            return socket.emit("login_denied", {
+              message: "This device is already in use!"
+            });
+          }
+
+
           const { allowed, message } = await canUserLogin(email);
           if (!allowed) {
             return socket.emit("login_denied", {
@@ -90,28 +155,30 @@ module.exports = {
             });
           }
 
-          // 3️⃣ Create new session
-          sessionId = uuidv4();
-          const now = new Date().toISOString();
 
+
+          // Create new individual session
+          sessionId = uuidv4();
           await insertSession({
             sessionId,
             email,
             deviceId,
-            now
+            now: new Date().toISOString()
           });
+
           connectedSessions[sessionId] = {
             socketId: socket.id,
-            user_email: email
+            user_email: email,
+            deviceId
           };
 
           socket.emit("login_ack", { sessionId });
-
         } catch (err) {
           console.error("❌ Register error:", err.message);
-          socket.emit("error", { message: err.message });
+          socket.emit("login_denied", { message: err.message });
         }
       });
+
 
       // // ---------- HEARTBEAT ----------
       socket.on("heartbeat", async () => {
@@ -127,33 +194,82 @@ module.exports = {
 
       // ---------- DISCONNECT ----------
       socket.on("disconnect", async () => {
+        try {
+          if (!sessionId) return;
+
+          // 1️⃣ Check if this is an enterprise session
+          if (connectedSessions[sessionId]?.companyId) {
+            // Delete company session
+            db.run(
+              `DELETE FROM CompanySessions WHERE session_id = ?`,
+              [sessionId],
+              (err) => {
+                if (err) console.error("Error deleting company session:", err.message);
+              }
+            );
+
+          } else if (connectedSessions[sessionId]?.user_email) {
+            // Delete individual user session
+            db.run(
+              `DELETE FROM UserSessions WHERE session_id = ?`,
+              [sessionId],
+              (err) => {
+                if (err) console.error("Error deleting user session:", err.message);
+              }
+            );
+          }
+
+          // 2️⃣ Remove from connectedSessions map
+          delete connectedSessions[sessionId];
+          sessionId = null;
+        } catch (err) {
+          console.error("Disconnect error:", err.message);
+        }
       });
+
     });
 
     // ---------- STALE SESSION CLEANUP ----------
     setInterval(() => {
-      const threshold = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+      const threshold = new Date(Date.now() - 20 * 60 * 1000).toISOString(); // 20 mins
 
+      // ---------- Individual user sessions ----------
       db.all(
-        `SELECT session_id FROM UserSessions 
-       WHERE last_heartbeat < ? AND active = 1`,
+        `SELECT session_id FROM UserSessions WHERE last_heartbeat < ? AND active = 1`,
         [threshold],
         (err, rows) => {
-          if (err) return console.error("Cleanup error:", err.message);
+          if (err) return console.error("User session cleanup error:", err.message);
 
           rows.forEach(({ session_id }) => {
             db.run(`DELETE FROM UserSessions WHERE session_id = ?`, [session_id]);
-
             const session = connectedSessions[session_id];
-            if (session && session.socket) {
+            if (session?.socket) {
               session.socket.disconnect(true);
-              delete connectedSessions[session_id];
             }
+            delete connectedSessions[session_id];
           });
-
         }
       );
-    }, 5 * 60 * 1000);
+
+      // ---------- Enterprise company sessions ----------
+      db.all(
+        `SELECT session_id FROM CompanySessions WHERE last_heartbeat < ? AND active = 1`,
+        [threshold],
+        (err, rows) => {
+          if (err) return console.error("Company session cleanup error:", err.message);
+
+          rows.forEach(({ session_id }) => {
+            db.run(`DELETE FROM CompanySessions WHERE session_id = ?`, [session_id]);
+            const session = connectedSessions[session_id];
+            if (session?.socket) {
+              session.socket.disconnect(true);
+            }
+            delete connectedSessions[session_id];
+          });
+        }
+      );
+    }, 5 * 60 * 1000); // every 5 minutes
+
 
   },
 

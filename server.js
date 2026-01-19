@@ -5,6 +5,7 @@ const setupSocket = require("./socket");
 const trackRoutes = require("./routes/track");
 const emailRoutes = require("./routes/email");
 const activeSessionsRoutes = require("./routes/activeSessions");
+const companySessionsRouter = require("./routes/companySessions");
 const verifyUserRoutes = require("./routes/verification");
 
 const app = express();
@@ -32,10 +33,11 @@ app.use(express.json());
 app.use("/track", trackRoutes);
 app.use("/email", emailRoutes);
 app.use("/active-sessions", activeSessionsRoutes);
+app.use("/company-sessions", companySessionsRouter);
 app.use("/verify-user", verifyUserRoutes);
 
 // Setup WebSocket
 setupSocket.init(server);
 
 const PORT = 3000;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT);

@@ -35,4 +35,33 @@ async function canUserLogin(email) {
     return { allowed: true };
 }
 
-module.exports = { canUserLogin };
+async function canCompanyUserLogin(companyId) {
+    if (!companyId) return resolve({ allowed: false, message: "Company ID is required" });
+
+    // 1️⃣ Get company info (maxusers and active)
+    const { data: company, error } = await supabase
+        .from("companies")
+        .select("companyid, companyname, maxusers, active")
+        .eq("companyid", companyId)
+        .single();
+
+    const allowedDevices = company.maxusers;
+
+    // 2️⃣ Count active sessions for this company
+    const activeSessions = await new Promise((resolve, reject) => {
+        db.get(
+            `SELECT COUNT(*) as count FROM CompanySessions WHERE companyid = ? AND active = 1`,
+            [companyId],
+            (err, row) => {
+                if (err) return reject(err);
+                resolve(row.sessionCount);
+            }
+        );
+    });
+    if (activeSessions >= allowedDevices) {
+        return { allowed: false, message: "Maximum device limit reached!" };
+    }
+    return { allowed: true };
+}
+
+module.exports = { canUserLogin, canCompanyUserLogin };
