@@ -278,7 +278,6 @@ module.exports = {
       console.warn("Socket.IO not initialized");
       return;
     }
-
     Object.values(connectedSessions).forEach(({ socketId, user_email: email }) => {
       if (email === user_email) {
         try {
