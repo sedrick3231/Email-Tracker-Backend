@@ -47,6 +47,18 @@ db.serialize(() => {
   )
 `);
 
+  db.run(`
+    CREATE TABLE IF NOT EXISTS OAuthSessions (
+      oauth_session_id TEXT PRIMARY KEY,
+      extension_id TEXT NOT NULL,
+      client_id TEXT NOT NULL,
+      scopes TEXT,
+      refresh_token_encrypted TEXT NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
 });
 
 module.exports = db;
