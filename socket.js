@@ -184,7 +184,34 @@ module.exports = {
             [now, deviceId]
           );
 
-        } catch {}
+        } catch { }
+      });
+
+      socket.on("heartbeat", async ({ sessionId: sid, companyId }) => {
+        if (!sid) return;
+
+        const session = connectedSessions[sid];
+        if (!session || session.socketId !== socket.id) {
+          return;
+        }
+        
+        const now = new Date().toISOString();
+
+        if (companyId) {
+          db.run(
+            `UPDATE CompanySessions
+            SET last_heartbeat = ?
+            WHERE session_id = ? AND active = 1`,
+            [now, sid]
+          );
+        } else {
+          db.run(
+            `UPDATE UserSessions 
+            SET last_heartbeat = ? 
+            WHERE session_id = ?`,
+            [now, sid]
+          );
+        }
       });
 
       socket.on("disconnect", async () => {
@@ -213,7 +240,7 @@ module.exports = {
 
           sessionId = null;
 
-        } catch {}
+        } catch { }
       });
 
     });
@@ -221,7 +248,7 @@ module.exports = {
     setInterval(() => {
 
       const threshold =
-        new Date(Date.now() - 20 * 60 * 1000).toISOString();
+        new Date(Date.now() - 15 * 1000).toISOString();
 
       db.all(
         `SELECT session_id FROM UserSessions 
@@ -279,7 +306,7 @@ module.exports = {
         }
       );
 
-    }, 5 * 60 * 1000);
+    }, 10 * 1000);
 
   },
 
@@ -297,7 +324,7 @@ module.exports = {
               "email-opened",
               payload
             );
-          } catch {}
+          } catch { }
 
         }
 
