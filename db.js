@@ -50,6 +50,8 @@ db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS OAuthSessions (
       oauth_session_id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL DEFAULT 'google',
+      email TEXT,
       extension_id TEXT NOT NULL,
       client_id TEXT NOT NULL,
       scopes TEXT,

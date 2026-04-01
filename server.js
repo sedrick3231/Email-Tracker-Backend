@@ -7,7 +7,7 @@ const emailRoutes = require("./routes/email");
 const activeSessionsRoutes = require("./routes/activeSessions");
 const companySessionsRouter = require("./routes/companySessions");
 const verifyUserRoutes = require("./routes/verification");
-const oauthGoogleRoutes = require("./routes/oauthGoogle");
+const oauthRoutes = require("./routes/oauth");
 
 const app = express();
 const server = http.createServer(app);
@@ -40,7 +40,7 @@ app.use("/email", emailRoutes);
 app.use("/active-sessions", activeSessionsRoutes);
 app.use("/company-sessions", companySessionsRouter);
 app.use("/verify-user", verifyUserRoutes);
-app.use("/oauth/google", oauthGoogleRoutes);
+app.use("/oauth", oauthRoutes);
 
 // Setup WebSocket
 setupSocket.init(server);

@@ -10,6 +10,9 @@ require("dotenv").config();
 const router = express.Router();
 
 const GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
+const MICROSOFT_TOKEN_ENDPOINT = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
+const MICROSOFT_USER_ENDPOINT = "https://graph.microsoft.com/v1.0/me";
+
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const EXCHANGE_LIMIT_PER_WINDOW = 20;
 const REFRESH_LIMIT_PER_WINDOW = 60;
@@ -36,9 +39,6 @@ function logOAuthRequest(req, res, next) {
   res.on("finish", () => {
     const durationMs = Date.now() - started;
     const extensionId = req.body?.extension_id || "unknown";
-    console.info(
-      `[OAUTH] ${req.method} ${req.originalUrl} status=${res.statusCode} extension_id=${extensionId} ip=${req.ip} duration_ms=${durationMs}`
-    );
   });
   next();
 }
@@ -108,6 +108,45 @@ function postForm(url, form) {
   });
 }
 
+function getRequest(url, accessToken) {
+  return new Promise((resolve, reject) => {
+    const request = https.request(
+      url,
+      {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        }
+      },
+      (response) => {
+        let body = "";
+        response.on("data", (chunk) => {
+          body += chunk;
+        });
+
+        response.on("end", () => {
+          let json;
+          try {
+            json = body ? JSON.parse(body) : {};
+          } catch (error) {
+            return reject(new Error("Invalid JSON response from OAuth provider"));
+          }
+
+          if (response.statusCode < 200 || response.statusCode >= 300) {
+            return resolve({ ok: false, status: response.statusCode, data: json });
+          }
+
+          return resolve({ ok: true, status: response.statusCode, data: json });
+        });
+      }
+    );
+
+    request.on("error", reject);
+    request.end();
+  });
+}
+
 function dbRun(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function onRun(err) {
@@ -126,12 +165,33 @@ function dbGet(sql, params = []) {
   });
 }
 
-function validateClient() {
-  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
-  if (!clientSecret) {
-    throw new Error("Missing GOOGLE_OAUTH_CLIENT_SECRET environment variable");
+function validateClient(provider) {
+  if (provider === "google") {
+    const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+    if (!clientSecret) {
+      throw new Error("Missing GOOGLE_OAUTH_CLIENT_SECRET environment variable");
+    }
+    return { clientSecret };
+  } else if (provider === "microsoft") {
+    const clientSecret = process.env.MICROSOFT_OAUTH_CLIENT_SECRET;
+    if (!clientSecret) {
+      throw new Error("Missing MICROSOFT_OAUTH_CLIENT_SECRET environment variable");
+    }
+    return { clientSecret };
+  } else {
+    throw new Error(`Unsupported provider: ${provider}`);
   }
-  return { clientSecret };
+}
+
+function getTokenEndpoint(provider) {
+  switch (provider) {
+    case "google":
+      return GOOGLE_TOKEN_ENDPOINT;
+    case "microsoft":
+      return MICROSOFT_TOKEN_ENDPOINT;
+    default:
+      throw new Error(`Unsupported provider: ${provider}`);
+  }
 }
 
 function normalizeScopes(scopes) {
@@ -142,14 +202,33 @@ function normalizeScopes(scopes) {
   return normalized;
 }
 
+async function fetchUserProfile(provider, accessToken) {
+  if (provider === "google") {
+    // For Google, we can get email from the token info or userinfo endpoint
+    // Since the existing code doesn't fetch profile, we'll assume email comes from extension
+    return null;
+  } else if (provider === "microsoft") {
+    const userResponse = await getRequest(MICROSOFT_USER_ENDPOINT, accessToken);
+    if (!userResponse.ok) {
+      throw new Error("Failed to fetch Microsoft user profile");
+    }
+    return userResponse.data.mail || userResponse.data.userPrincipalName;
+  }
+  return null;
+}
+
 router.use(logOAuthRequest);
 
 router.post("/exchange", createRateLimiter(EXCHANGE_LIMIT_PER_WINDOW, RATE_LIMIT_WINDOW_MS), async (req, res) => {
   try {
-    const { code, redirect_uri, code_verifier, client_id, extension_id, scopes } = req.body || {};
+    const { provider, code, redirect_uri, code_verifier, client_id, extension_id, scopes } = req.body || {};
 
-    if (!code || !redirect_uri || !code_verifier || !client_id || !extension_id || !scopes) {
-      return res.status(400).json({ error: "code, redirect_uri, code_verifier, client_id, extension_id, scopes are required" });
+    if (!provider || !code || !redirect_uri || !code_verifier || !client_id || !extension_id || !scopes) {
+      return res.status(400).json({ error: "provider, code, redirect_uri, code_verifier, client_id, extension_id, scopes are required" });
+    }
+
+    if (!["google", "microsoft"].includes(provider)) {
+      return res.status(400).json({ error: "Invalid provider. Must be 'google' or 'microsoft'" });
     }
 
     if (!isAllowedExtension(extension_id)) {
@@ -161,7 +240,8 @@ router.post("/exchange", createRateLimiter(EXCHANGE_LIMIT_PER_WINDOW, RATE_LIMIT
       return res.status(400).json({ error: "scopes cannot be empty" });
     }
 
-    const { clientSecret } = validateClient();
+    const { clientSecret } = validateClient(provider);
+    const tokenEndpoint = getTokenEndpoint(provider);
 
     const form = new URLSearchParams({
       grant_type: "authorization_code",
@@ -172,7 +252,7 @@ router.post("/exchange", createRateLimiter(EXCHANGE_LIMIT_PER_WINDOW, RATE_LIMIT
       code_verifier
     });
 
-    const tokenResponse = await postForm(GOOGLE_TOKEN_ENDPOINT, form);
+    const tokenResponse = await postForm(tokenEndpoint, form);
 
     if (!tokenResponse.ok) {
       return res.status(502).json({ error: "OAuth exchange failed" });
@@ -188,19 +268,31 @@ router.post("/exchange", createRateLimiter(EXCHANGE_LIMIT_PER_WINDOW, RATE_LIMIT
       return res.status(400).json({ error: "No refresh token returned by OAuth provider" });
     }
 
+    // Fetch user email for Microsoft
+    let userEmail = null;
+    if (provider === "microsoft") {
+      try {
+        userEmail = await fetchUserProfile(provider, access_token);
+      } catch (error) {
+        console.error("Failed to fetch user profile:", error.message);
+        // Continue without email for now
+      }
+    }
+
     const oauthSessionId = uuidv4();
     const refreshTokenEncrypted = encryptRefreshToken(refresh_token);
 
     await dbRun(
-      `INSERT INTO OAuthSessions (oauth_session_id, extension_id, client_id, scopes, refresh_token_encrypted)
-       VALUES (?, ?, ?, ?, ?)`,
-      [oauthSessionId, extension_id, client_id, normalizedScopes, refreshTokenEncrypted]
+      `INSERT INTO OAuthSessions (oauth_session_id, provider, email, extension_id, client_id, scopes, refresh_token_encrypted)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [oauthSessionId, provider, userEmail, extension_id, client_id, normalizedScopes, refreshTokenEncrypted]
     );
 
     return res.json({
       access_token,
       expires_in,
-      oauth_session_id: oauthSessionId
+      oauth_session_id: oauthSessionId,
+      provider
     });
   } catch (error) {
     console.error("[OAUTH] /exchange error", error.message);
@@ -221,7 +313,7 @@ router.post("/refresh", createRateLimiter(REFRESH_LIMIT_PER_WINDOW, RATE_LIMIT_W
     }
 
     const session = await dbGet(
-      `SELECT oauth_session_id, extension_id, client_id, refresh_token_encrypted
+      `SELECT oauth_session_id, provider, extension_id, client_id, refresh_token_encrypted
        FROM OAuthSessions
        WHERE oauth_session_id = ? AND extension_id = ?`,
       [oauth_session_id, extension_id]
@@ -231,7 +323,8 @@ router.post("/refresh", createRateLimiter(REFRESH_LIMIT_PER_WINDOW, RATE_LIMIT_W
       return res.status(404).json({ error: "OAuth session not found" });
     }
 
-    const { clientSecret } = validateClient();
+    const { clientSecret } = validateClient(session.provider);
+    const tokenEndpoint = getTokenEndpoint(session.provider);
     const refreshToken = decryptRefreshToken(session.refresh_token_encrypted);
 
     const form = new URLSearchParams({
@@ -241,7 +334,7 @@ router.post("/refresh", createRateLimiter(REFRESH_LIMIT_PER_WINDOW, RATE_LIMIT_W
       refresh_token: refreshToken
     });
 
-    const tokenResponse = await postForm(GOOGLE_TOKEN_ENDPOINT, form);
+    const tokenResponse = await postForm(tokenEndpoint, form);
 
     if (!tokenResponse.ok) {
       return res.status(502).json({ error: "OAuth refresh failed" });
