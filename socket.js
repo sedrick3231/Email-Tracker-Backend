@@ -248,7 +248,7 @@ module.exports = {
     setInterval(() => {
 
       const threshold =
-        new Date(Date.now() - 15 * 1000).toISOString();
+        new Date(Date.now() - 4 * 1000).toISOString();
 
       db.all(
         `SELECT session_id FROM UserSessions 
@@ -306,7 +306,7 @@ module.exports = {
         }
       );
 
-    }, 5 * 1000);
+    }, 7 * 1000);
 
   },
 
