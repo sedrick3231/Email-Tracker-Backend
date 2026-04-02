@@ -194,7 +194,7 @@ module.exports = {
         if (!session || session.socketId !== socket.id) {
           return;
         }
-        
+
         const now = new Date().toISOString();
 
         if (companyId) {
@@ -306,7 +306,7 @@ module.exports = {
         }
       );
 
-    }, 10 * 1000);
+    }, 5 * 1000);
 
   },
 
