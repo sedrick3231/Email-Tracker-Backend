@@ -253,7 +253,6 @@ router.post("/exchange", createRateLimiter(EXCHANGE_LIMIT_PER_WINDOW, RATE_LIMIT
     });
 
     const tokenResponse = await postForm(tokenEndpoint, form);
-
     if (!tokenResponse.ok) {
       return res.status(502).json({ error: "OAuth exchange failed" });
     }
